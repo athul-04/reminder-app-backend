@@ -110,7 +110,9 @@ def telegram_webhook():
     return "OK", 200
 
 
-
+if __name__ == "__main__":
+    port = int(os.environ.get("PORT", 5000))
+    app.run(host="0.0.0.0", port=port)
 
 
 
@@ -142,5 +144,4 @@ def telegram_webhook():
 #     data = [{doc.id: doc.to_dict()} for doc in docs]
 #     return jsonify(data)
 
-if __name__ == "__main__":
-    app.run(debug=True)
+
