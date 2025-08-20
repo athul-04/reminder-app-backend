@@ -7,7 +7,17 @@ import requests
 
 # Initialize Flask app
 app = Flask(__name__)
-CORS(app) 
+# ✅ Allow both local dev and deployed frontend
+CORS(app, resources={r"/*": {"origins": ["*"]}}, supports_credentials=True)
+
+@app.after_request
+def add_cors_headers(response):
+    # ✅ Allow all origins for now (you can restrict later to just localhost:5173 + your prod domain)
+    response.headers["Access-Control-Allow-Origin"] = request.headers.get("Origin", "*")
+    response.headers["Access-Control-Allow-Methods"] = "GET, POST, PUT, DELETE, OPTIONS"
+    response.headers["Access-Control-Allow-Headers"] = "Content-Type, Authorization"
+    response.headers["Access-Control-Allow-Credentials"] = "true"
+    return response
 
 
 TELEGRAM_API_URL = f"https://api.telegram.org/bot{os.environ['TELEGRAM_BOT_TOKEN']}"
