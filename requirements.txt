@@ -2,5 +2,5 @@ Flask==3.0.3
 firebase-admin==6.5.0
 gunicorn==23.0.0
 flask-cors
-datetime==4.7.2
-requests==2.31.0
+datetime
+requests
