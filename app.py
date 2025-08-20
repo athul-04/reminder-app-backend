@@ -3,11 +3,15 @@ import os, json, firebase_admin
 from firebase_admin import credentials, firestore
 from datetime import datetime
 from flask_cors import CORS
-
+import requests
 
 # Initialize Flask app
 app = Flask(__name__)
 CORS(app) 
+
+
+TELEGRAM_API_URL = f"https://api.telegram.org/bot{os.environ['TELEGRAM_BOT_TOKEN']}"
+
 
 # Initialize Firebase
 firebase_creds = json.loads(os.environ["FIREBASE_CREDS"])
@@ -87,19 +91,23 @@ def telegram_webhook():
                 uid = parts[1] 
                 
                 user_ref = db.collection("users").document(uid)
-                if user_ref.get().exists:
+                user_doc = user_ref.get()
+
+                if user_doc.exists:
+                    user_data = user_doc.to_dict()
+                    username = user_data.get("username", "Unknown User")
+
+                    # update chatId in Firestore
                     user_ref.update({"chatId": chat_id})
                     print(f"✅ Updated chatId for user {uid} = {chat_id}")
 
-                    return jsonify({
-                        "method": "sendMessage",
+                    # send actual message via Telegram API
+                    requests.post(f"{TELEGRAM_API_URL}/sendMessage", json={
                         "chat_id": chat_id,
-                        "text": "Your Telegram is linked! Go back to the app 🚀"
+                        "text": f"✅ Account linked with username: {username}"
                     })
+
     return "OK", 200
-
-
-
 
 
 
