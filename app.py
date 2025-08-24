@@ -224,36 +224,43 @@ def send_telegram_message(chat_id, text):
 @scheduler.task("interval", id="check_reminders", minutes=1)
 def check_reminders():
     now = datetime.now(timezone.utc)
-    one_hour_later = now + timedelta(hours=1)
 
     reminders = db.collection("reminders").stream()
     for r in reminders:
         reminder = r.to_dict()
+        reminder_id = r.id
         reminder_time = datetime.fromisoformat(reminder["timestamp"].replace("Z", "+00:00"))
         uid = reminder["uid"]
 
+        # fetch user doc
         user_doc = db.collection("users").document(uid).get()
         if not user_doc.exists:
             continue
         chat_id = user_doc.to_dict().get("chatId")
 
+        # --- 1 Hour Before ---
+        if (reminder_time - timedelta(hours=1)) <= now < reminder_time:
+            if not reminder.get("notifiedBefore", False):
+                send_telegram_message(
+                    chat_id,
+                    f"⏰ Upcoming Reminder in 1 hour!\n\n"
+                    f"📌 Title: {reminder['title']}\n"
+                    f"📝 {reminder['body']}\n"
+                    f"📅 Due at: {reminder['timestamp']}"
+                )
+                db.collection("reminders").document(reminder_id).update({"notifiedBefore": True})
 
-        if one_hour_later >= reminder_time > now:
-            send_telegram_message(chat_id,
-                f"⏰ Upcoming Reminder in 1 hour!\n\n"
-                f"📌 Title: {reminder['title']}\n"
-                f"📝 {reminder['body']}\n"
-                f"📅 Due at: {reminder['timestamp']}"
-            )
-
-        # On-time notification
-        if abs((reminder_time - now).total_seconds()) < 60:  # within 1 min
-            send_telegram_message(chat_id,
-                f"🚨 Reminder is due now!\n\n"
-                f"📌 Title: {reminder['title']}\n"
-                f"📝 {reminder['body']}\n"
-                f"📅 Due at: {reminder['timestamp']}"
-            )
+        # --- At Deadline ---
+        if abs((reminder_time - now).total_seconds()) < 60:  # within 1 min window
+            if not reminder.get("notifiedDue", False):
+                send_telegram_message(
+                    chat_id,
+                    f"🚨 Reminder is due now!\n\n"
+                    f"📌 Title: {reminder['title']}\n"
+                    f"📝 {reminder['body']}\n"
+                    f"📅 Due at: {reminder['timestamp']}"
+                )
+                db.collection("reminders").document(reminder_id).update({"notifiedDue": True})
 
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 5000))
