@@ -5,10 +5,30 @@ from datetime import datetime
 from flask_cors import CORS
 from firebase_admin import auth
 import requests
+from functools import wraps
 
 
 app = Flask(__name__)
 CORS(app, resources={r"/*": {"origins": ["*"]}}, supports_credentials=True)
+
+
+def require_auth(f):
+    @wraps(f)
+    def decorated_function(*args, **kwargs):
+        auth_header = request.headers.get("Authorization")
+        if not auth_header:
+            return jsonify({"error": "Missing Authorization header"}), 401
+        
+        try:
+            token = auth_header.replace("Bearer ", "")
+            decoded_token = auth.verify_id_token(token)
+            request.user = decoded_token  # attach decoded user to request
+        except Exception as e:
+            return jsonify({"error": "Invalid or expired token", "details": str(e)}), 401
+        
+        return f(*args, **kwargs)
+    return decorated_function
+
 
 @app.after_request
 def add_cors_headers(response):
@@ -37,19 +57,15 @@ def home():
 
 
 @app.route("/registerUser", methods=["POST"])
+@require_auth
 def register_user():
     data = request.get_json()
-    print("Received data:", data)
-
-    if not data:
-        return jsonify({"error": "No data received"}), 400
-
-    uid = data.get("uid")
+    uid = request.user["uid"]   # ✅ comes from verified JWT
     username = data.get("username")
     email = data.get("email")
 
-    if not uid or not username:
-        return jsonify({"error": "uid and username are required"}), 400
+    if not username:
+        return jsonify({"error": "username is required"}), 400
 
     try:
         user_ref = db.collection("users").document(uid)
@@ -58,25 +74,27 @@ def register_user():
         if user_doc.exists:
             return jsonify({"message": "User already registered"}), 200
         else:
-            new_user = {"uid": uid,"username": username,"email": email,"chatId": None,"createdAt": datetime.utcnow().isoformat()}
+            new_user = {
+                "uid": uid,
+                "username": username,
+                "email": email,
+                "chatId": None,
+                "createdAt": datetime.utcnow().isoformat()
+            }
             user_ref.set(new_user)
-            return jsonify({"message": "User registered successfully","user": new_user}), 201
+            return jsonify({"message": "User registered successfully", "user": new_user}), 201
     except Exception as e:
-        print("Error:", e)
         return jsonify({"error": str(e)}), 500
-    
+
 
 
     
 @app.route("/getUser", methods=["GET"])
+@require_auth
 def get_user():
-    uid = request.args.get("uid")
-    if not uid:
-        return jsonify({"error": "uid is required"}), 400
-
+    uid = request.user["uid"]   # ✅ from token, ignore query param
     user_ref = db.collection("users").document(uid)
     user_doc = user_ref.get()
-
     if user_doc.exists:
         return jsonify(user_doc.to_dict()), 200
     else:
