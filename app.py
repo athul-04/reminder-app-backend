@@ -1,7 +1,8 @@
 from flask import Flask, jsonify,request
 import os, json, firebase_admin
 from firebase_admin import credentials, firestore
-from datetime import datetime
+from datetime import datetime, timedelta, timezone
+from flask_apscheduler import APScheduler
 from flask_cors import CORS
 from firebase_admin import auth
 import requests
@@ -198,6 +199,7 @@ def get_reminders():
 
 
 @app.route('/deleteReminder/<reminder_id>', methods=['DELETE'])
+@require_auth
 def delete_reminder(reminder_id):
     try:
 
@@ -206,6 +208,52 @@ def delete_reminder(reminder_id):
     except Exception as e:
         return jsonify({"success": False, "error": str(e)}), 500
 
+TELEGRAM_API_URL_MESSAGE = f"https://api.telegram.org/bot{os.environ['TELEGRAM_BOT_TOKEN']}/sendMessage"
+
+scheduler = APScheduler()
+scheduler.init_app(app)
+scheduler.start()
+
+def send_telegram_message(chat_id, text):
+    payload = {
+        "chat_id": chat_id,
+        "text": text
+    }
+    requests.post(TELEGRAM_API_URL_MESSAGE, json=payload)
+
+@scheduler.task("interval", id="check_reminders", minutes=1)
+def check_reminders():
+    now = datetime.now(timezone.utc)
+    one_hour_later = now + timedelta(hours=1)
+
+    reminders = db.collection("reminders").stream()
+    for r in reminders:
+        reminder = r.to_dict()
+        reminder_time = datetime.fromisoformat(reminder["timestamp"].replace("Z", "+00:00"))
+        uid = reminder["uid"]
+
+        user_doc = db.collection("users").document(uid).get()
+        if not user_doc.exists:
+            continue
+        chat_id = user_doc.to_dict().get("chatId")
+
+
+        if one_hour_later >= reminder_time > now:
+            send_telegram_message(chat_id,
+                f"⏰ Upcoming Reminder in 1 hour!\n\n"
+                f"📌 Title: {reminder['title']}\n"
+                f"📝 {reminder['body']}\n"
+                f"📅 Due at: {reminder['timestamp']}"
+            )
+
+        # On-time notification
+        if abs((reminder_time - now).total_seconds()) < 60:  # within 1 min
+            send_telegram_message(chat_id,
+                f"🚨 Reminder is due now!\n\n"
+                f"📌 Title: {reminder['title']}\n"
+                f"📝 {reminder['body']}\n"
+                f"📅 Due at: {reminder['timestamp']}"
+            )
 
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 5000))
