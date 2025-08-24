@@ -3,16 +3,15 @@ import os, json, firebase_admin
 from firebase_admin import credentials, firestore
 from datetime import datetime
 from flask_cors import CORS
+from firebase_admin import auth
 import requests
 
-# Initialize Flask app
+
 app = Flask(__name__)
-# ✅ Allow both local dev and deployed frontend
 CORS(app, resources={r"/*": {"origins": ["*"]}}, supports_credentials=True)
 
 @app.after_request
 def add_cors_headers(response):
-    # ✅ Allow all origins for now (you can restrict later to just localhost:5173 + your prod domain)
     response.headers["Access-Control-Allow-Origin"] = request.headers.get("Origin", "*")
     response.headers["Access-Control-Allow-Methods"] = "GET, POST, PUT, DELETE, OPTIONS"
     response.headers["Access-Control-Allow-Headers"] = "Content-Type, Authorization"
@@ -119,6 +118,64 @@ def telegram_webhook():
 
     return "OK", 200
 
+
+
+@app.route("/addReminder", methods=["POST"])
+def add_reminder():
+    data = request.get_json()
+
+    id_token = request.headers.get("Authorization")  # frontend sends Bearer token
+    if not id_token:
+        return jsonify({"error": "Missing auth token"}), 401
+
+    try:
+        # Verify Firebase token
+        decoded_token = auth.verify_id_token(id_token.replace("Bearer ", ""))
+        uid = decoded_token["uid"]
+    except Exception as e:
+        return jsonify({"error": "Invalid token", "details": str(e)}), 401
+
+    title = data.get("title")
+    body = data.get("body")
+    timestamp = data.get("timestamp")
+
+    if not title or not body or not timestamp:
+        return jsonify({"error": "title, body and timestamp are required"}), 400
+
+    reminder_ref = db.collection("reminders").document()
+    reminder = {
+        "uid": uid,   # ✅ take from verified token
+        "title": title,
+        "body": body,
+        "timestamp": timestamp,
+        "createdAt": datetime.utcnow().isoformat()
+    }
+    reminder_ref.set(reminder)
+
+    return jsonify({"message": "Reminder added successfully", "reminder": reminder}), 201
+
+@app.route("/getReminders", methods=["GET"])
+def get_reminders():
+    try:
+        # Get token from header
+        auth_header = request.headers.get("Authorization")
+        if not auth_header:
+            return jsonify({"error": "Missing Authorization header"}), 401
+
+        token = auth_header.split(" ")[1]  # "Bearer <token>"
+
+        # Verify Firebase token
+        decoded_token = auth.verify_id_token(token)
+        uid = decoded_token["uid"]
+
+        # Fetch reminders from Firestore
+        reminders_ref = db.collection("reminders").where("uid", "==", uid)
+        reminders = [doc.to_dict() | {"id": doc.id} for doc in reminders_ref.stream()]
+
+        return jsonify(reminders), 200
+
+    except Exception as e:
+        return jsonify({"error": str(e)}), 400
 
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 5000))
