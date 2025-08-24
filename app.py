@@ -194,6 +194,18 @@ def get_reminders():
 
     except Exception as e:
         return jsonify({"error": str(e)}), 400
+    
+
+
+@app.route('/deleteReminder/<reminder_id>', methods=['DELETE'])
+def delete_reminder(reminder_id):
+    try:
+
+        db.collection("reminders").document(reminder_id).delete()
+        return jsonify({"success": True, "message": f"Reminder {reminder_id} deleted"})
+    except Exception as e:
+        return jsonify({"success": False, "error": str(e)}), 500
+
 
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 5000))
